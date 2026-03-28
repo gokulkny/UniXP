@@ -1,0 +1,12 @@
+{
+  "name": "university-portal-demo",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p frontend/tsconfig.json",
+    "watch": "tsc -p frontend/tsconfig.json -w"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
+

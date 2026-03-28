@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>UniPortal - Courses</title>
+  <link rel="stylesheet" href="/css/main.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="container nav">
+      <a class="brand" href="/index.html">UniPortal</a>
+      <nav class="nav-links" aria-label="Primary">
+        <a href="/index.html">Home</a>
+        <a href="/admissions.html">Admissions</a>
+        <a href="/courses.html">Courses</a>
+        <a href="/dashboard.html">Dashboard</a>
+        <a href="/contact.html">Contact</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="main-card">
+      <h1 style="margin:0 0 10px 0;">Course Catalog</h1>
+      <p class="muted" style="margin:0 0 16px 0;">
+        Courses are fetched from the demo API endpoint: <code>/api/courses</code>.
+      </p>
+
+      <div id="coursesError" class="error" hidden></div>
+
+      <table aria-label="Courses">
+        <thead>
+          <tr>
+            <th>Title</th>
+            <th>Department</th>
+            <th>Credits</th>
+            <th>Seats</th>
+          </tr>
+        </thead>
+        <tbody id="coursesTableBody"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      UniPortal Demo &copy; 2026
+    </div>
+  </footer>
+
+  <script type="module" src="/js/courses.js"></script>
+</body>
+</html>
+

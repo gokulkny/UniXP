@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>UniPortal - Dashboard</title>
+  <link rel="stylesheet" href="/css/main.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="container nav">
+      <a class="brand" href="/index.html">UniPortal</a>
+      <nav class="nav-links" aria-label="Primary">
+        <a href="/index.html">Home</a>
+        <a href="/admissions.html">Admissions</a>
+        <a href="/courses.html">Courses</a>
+        <a href="/dashboard.html">Dashboard</a>
+        <a href="/contact.html">Contact</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="main-card" id="dashboardCard">
+      <div class="grid">
+        <div class="col-12">
+          <h1 style="margin:0 0 8px 0;">Student Dashboard</h1>
+          <p class="muted" style="margin:0;">
+            Signed in as <strong><span id="meName">...</span></strong>.
+          </p>
+        </div>
+
+        <div class="col-12" style="margin-top: 14px;">
+          <div class="btn-row" style="justify-content:space-between;">
+            <button type="button" id="logoutBtn" class="secondary">Logout</button>
+            <a href="/courses.html" style="text-decoration:none;">
+              <button type="button" class="secondary">View Catalog</button>
+            </a>
+          </div>
+        </div>
+
+        <div class="col-12" style="margin-top: 16px;">
+          <h2 style="margin:0 0 10px 0; font-size: 18px;">Available Courses</h2>
+          <div id="dashboardError" class="error" hidden></div>
+
+          <table aria-label="Dashboard Courses">
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th>Department</th>
+                <th>Credits</th>
+                <th>Seats</th>
+              </tr>
+            </thead>
+            <tbody id="dashboardCoursesBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Floating chatbot widget (hidden until opened) -->
+  <button type="button" id="chatFab" class="chatFab" aria-label="Open chatbot" title="Chatbot">
+    <span class="chatFabIcon" aria-hidden="true">?</span>
+  </button>
+
+  <aside id="chatPanel" class="chatPanel" aria-hidden="true">
+    <header class="chatHeader">
+      <div class="chatHeaderLeft">
+        <span class="chatTitle">UniPortal Assistant</span>
+        <span class="chatSubtitle">Ask about courses, admissions, or policies</span>
+      </div>
+      <button type="button" id="chatCloseBtn" class="chatCloseBtn" aria-label="Close chatbot">×</button>
+    </header>
+
+    <div id="chatMessages" class="chatMessages" role="log" aria-live="polite"></div>
+
+    <div class="chatOptions">
+      <label class="chatOptionLabel" for="chatStrictDocs">
+        <input id="chatStrictDocs" type="checkbox" />
+        Strictly answer from docs
+      </label>
+    </div>
+
+    <form id="chatForm" class="chatForm">
+      <input id="chatInput" type="text" placeholder="Type your message..." autocomplete="off" required maxlength="2000" />
+      <button type="submit" id="chatSendBtn">Send</button>
+    </form>
+    <div id="chatHint" class="chatHint" hidden></div>
+  </aside>
+
+  <footer>
+    <div class="container">
+      UniPortal Demo &copy; 2026
+    </div>
+  </footer>
+
+  <script type="module" src="/js/dashboard.js"></script>
+  <script type="module" src="/js/chatbot.js"></script>
+</body>
+</html>
+
