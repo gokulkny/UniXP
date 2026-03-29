@@ -2,6 +2,7 @@ package com.example.universityportal.ai;
 
 import com.example.universityportal.dto.ChatResponse;
 import com.example.universityportal.rag.GoogleDrivePdfRagService;
+import com.example.universityportal.rag.vector.RagRetrievalProperties;
 import org.springframework.stereotype.Service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,13 +27,19 @@ public class ChatService {
 
   private final OpenRouterChatClient openRouterChatClient;
   private final GoogleDrivePdfRagService ragService;
+  private final RagRetrievalProperties ragRetrievalProperties;
 
   // Demo-only in-memory conversation history.
   private final Map<String, Deque<ChatTurn>> historyByUser = new ConcurrentHashMap<>();
 
-  public ChatService(OpenRouterChatClient openRouterChatClient, GoogleDrivePdfRagService ragService) {
+  public ChatService(
+      OpenRouterChatClient openRouterChatClient,
+      GoogleDrivePdfRagService ragService,
+      RagRetrievalProperties ragRetrievalProperties
+  ) {
     this.openRouterChatClient = openRouterChatClient;
     this.ragService = ragService;
+    this.ragRetrievalProperties = ragRetrievalProperties;
   }
 
   public ChatResponse chat(String username, String userMessage, boolean strictFromDocs, String requestId) {
@@ -45,6 +52,8 @@ public class ChatService {
       IntentType intent = classifyIntent(userMessage);
       boolean ragStrict = getEnvBool("PORTAL_RAG_STRICT", false);
       boolean effectiveStrictMode = ragStrict || strictFromDocs;
+      boolean vectorOrHybrid = ragRetrievalProperties.getRetrievalMode() == RagRetrievalProperties.RetrievalMode.vector
+          || ragRetrievalProperties.getRetrievalMode() == RagRetrievalProperties.RetrievalMode.hybrid;
       String systemPrompt = getEnv(
           "PORTAL_AI_SYSTEM_PROMPT",
           """
@@ -116,9 +125,10 @@ public class ChatService {
           "This information is not specified in the provided material."
       );
 
-      // Strict mode must always use document-grounded flow, regardless of intent.
-      boolean useCasualFlow = !effectiveStrictMode && intent == IntentType.CASUAL;
-      if (useCasualFlow && isSimpleGreeting(userMessage)) {
+      // Vector/hybrid RAG: answers must come only from retrieved chunks (rag_chunk / in-memory index).
+      // Never use general OpenRouter small-talk for those modes.
+      boolean useCasualFlow = !effectiveStrictMode && intent == IntentType.CASUAL && !vectorOrHybrid;
+      if ((useCasualFlow || vectorOrHybrid) && isSimpleGreeting(userMessage)) {
         String greetingReply = "Hi! I can help with questions from your uploaded documents.";
         log.info("AI reply (requestId={}, username={}): {}", requestId, username, greetingReply);
         return ChatResponse.ok(greetingReply);
@@ -126,7 +136,7 @@ public class ChatService {
       String systemPromptWithRag = useCasualFlow ? casualSystemPrompt : systemPrompt;
       boolean hasRagContext = false;
       String retrievedContext = null;
-      if (!useCasualFlow && ragService != null) {
+      if (ragService != null && (!useCasualFlow || vectorOrHybrid)) {
         try {
           var maybeContext = ragService.retrieveContext(userMessage);
           if (maybeContext.isPresent()) {
@@ -147,8 +157,9 @@ public class ChatService {
         }
       }
 
-      if (effectiveStrictMode && !hasRagContext) {
-        log.info("RAG strict mode refusal (requestId={}, username={}): no relevant document context", requestId, username);
+      if ((effectiveStrictMode || vectorOrHybrid) && !hasRagContext) {
+        log.info("RAG refusal (requestId={}, username={}): no retrieved context (strict={}, vectorOrHybrid={})",
+            requestId, username, effectiveStrictMode, vectorOrHybrid);
         return ChatResponse.ok(ragNoContextMessage);
       }
 

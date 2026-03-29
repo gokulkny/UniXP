@@ -1,0 +1,11 @@
+package com.example.universityportal.rag.vector;
+
+import java.util.UUID;
+
+public record VectorSearchResult(
+    UUID id,
+    String sourceFileId,
+    String sourceFileName,
+    String content,
+    double score
+) {}

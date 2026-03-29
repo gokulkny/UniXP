@@ -1,0 +1,30 @@
+# Option 1 (recommended): run with vector profile — uses application-vector.properties:
+#   mvn spring-boot:run -Dspring-boot.run.profiles=vector
+#   or: set SPRING_PROFILES_ACTIVE=vector
+#
+# Option 2: copy this file to application-local.properties and add:
+#   spring.profiles.active=vector
+#
+# Prerequisites: Postgres with pgvector (see docker-compose.yml), Drive PDFs, service account JSON, OpenRouter API key.
+
+portal.rag.retrieval-mode=vector
+# portal.rag.retrieval-mode=hybrid
+
+spring.datasource.url=jdbc:postgresql://localhost:5432/portal
+spring.datasource.username=portal
+spring.datasource.password=portal
+
+# Optional tuning (defaults exist in RagRetrievalProperties / code)
+# portal.rag.top-k=5
+# portal.rag.max-context-chars=4500
+# portal.rag.max-chunks-per-doc=4
+# portal.rag.min-chunk-chars=180
+
+# Embeddings (OpenRouter OpenAI-compatible)
+# portal.embedding.base-url=https://openrouter.ai/api/v1
+# portal.embedding.model=openai/text-embedding-3-small
+# portal.embedding.dimension=1536
+
+# Env vars still required at runtime:
+# PORTAL_GOOGLE_SERVICE_ACCOUNT_JSON
+# PORTAL_OPENROUTER_API_KEY
