@@ -26,6 +26,12 @@ docker compose up -d
 
 4. On startup, with `vector` or `hybrid`, the app runs Flyway migrations, then indexes configured Drive PDFs (`portal.drive.fileIds`) into table `rag_chunk` with embeddings (`portal.embedding.model`, default `openai/text-embedding-3-small`, dimension **1536** — must match the Flyway `vector(1536)` column).
 
+   If embedding calls time out on larger batches, tune:
+   - `portal.embedding.timeout-seconds` (default `60`)
+   - `portal.embedding.max-retries` (default `2`)
+   - `portal.embedding.retry-backoff-ms` (default `1200`)
+   - `PORTAL_EMBEDDING_BATCH_SIZE` (try `8` or `4` on slow networks)
+
 ### Retrieval modes
 
 | `portal.rag.retrieval-mode` | Behavior |
@@ -48,3 +54,30 @@ docker compose up -d
 1. With the app running (profile `vector`), open **http://localhost:8080/api/rag/status** — check `ragChunkCount`, `vectorRagIndexServicePresent`, and env flags.
 2. To retry indexing without restarting: **POST** **http://localhost:8080/api/rag/reindex** (same env vars as startup).
 3. Check logs for **rag_chunk row count** before/after indexing and any **Vector RAG indexing failed** stack trace.
+
+## Multilingual (English + Portuguese) strategy
+
+- Keep chunk text in original language inside `rag_chunk` (no mandatory translation during ingestion).
+- Use multilingual embeddings for both indexing and query embedding (current default is `openai/text-embedding-3-small`).
+- Retrieval uses vector + lexical rescue + language-aware reranking.
+- Answer generation stays strict-from-context, but instructs the model to answer in the user question language.
+
+### Why not pre-translate all PDFs
+
+- Can distort legal/academic wording.
+- Increases ingestion cost and complexity.
+- Makes auditing harder because answer traces diverge from original source text.
+
+### Evaluate bilingual retrieval quality
+
+Use `POST /api/rag/evaluate` with a small labeled set:
+
+- Sample payload: `src/test/resources/rag/bilingual-goldset.sample.json`
+- Endpoint output includes:
+  - `hasContextRate`
+  - `hasContextByLabel`
+  - `expectedMatchRate` (when `expectedHasContext` is provided)
+
+Suggested labels:
+
+- `pt->pt`, `en->en`, `en->pt`, `pt->en`, `negative`

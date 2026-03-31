@@ -1,12 +1,14 @@
 com\example\universityportal\rag\vector\VectorStore.class
 com\example\universityportal\rag\GoogleDrivePdfRagService$ScoredChunk.class
 com\example\universityportal\rag\vector\KeywordOverlapReranker.class
+com\example\universityportal\rag\vector\QueryLanguage.class
 com\example\universityportal\ai\ChatService.class
 com\example\universityportal\rag\vector\EmbeddingClient.class
 com\example\universityportal\rag\vector\OpenRouterEmbeddingClient.class
 com\example\universityportal\ai\OpenRouterChatClient.class
 com\example\universityportal\rag\RagChunk.class
 com\example\universityportal\rag\vector\VectorSearchResult.class
+com\example\universityportal\rag\vector\OpenRouterEmbeddingClient$EmbeddingHttpException.class
 com\example\universityportal\rag\GoogleDrivePdfRagService.class
 com\example\universityportal\dto\ChatRequest.class
 com\example\universityportal\rag\vector\VectorRagIndexService.class
@@ -24,6 +26,7 @@ com\example\universityportal\rag\DrivePdfTextUtils.class
 com\example\universityportal\PortalApplication.class
 com\example\universityportal\rag\RagExcerpt.class
 com\example\universityportal\api\AuthController.class
+com\example\universityportal\rag\vector\QueryLanguageDetector.class
 com\example\universityportal\ai\ChatTurn.class
 com\example\universityportal\rag\GoogleDrivePdfLoader.class
 com\example\universityportal\dto\ChatResponse.class

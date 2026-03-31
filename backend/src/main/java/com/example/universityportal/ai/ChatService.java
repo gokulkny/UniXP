@@ -2,6 +2,8 @@ package com.example.universityportal.ai;
 
 import com.example.universityportal.dto.ChatResponse;
 import com.example.universityportal.rag.GoogleDrivePdfRagService;
+import com.example.universityportal.rag.vector.QueryLanguage;
+import com.example.universityportal.rag.vector.QueryLanguageDetector;
 import com.example.universityportal.rag.vector.RagRetrievalProperties;
 import org.springframework.stereotype.Service;
 import org.slf4j.Logger;
@@ -124,6 +126,9 @@ public class ChatService {
           "PORTAL_RAG_NO_CONTEXT_MESSAGE",
           "This information is not specified in the provided material."
       );
+      QueryLanguage queryLanguage = QueryLanguageDetector.detect(userMessage);
+      String localizedNoContext = localizedNoContextMessage(queryLanguage, ragNoContextMessage);
+      String answerLanguage = preferredAnswerLanguage(queryLanguage);
 
       // Vector/hybrid RAG: answers must come only from retrieved chunks (rag_chunk / in-memory index).
       // Never use general OpenRouter small-talk for those modes.
@@ -147,9 +152,11 @@ public class ChatService {
                 + "\n\nContext:\n"
                 + context
                 + "\n\nInstructions: Answer using only the Context above. "
+                + "Respond in " + answerLanguage + ". "
+                + "If Context is in another language, translate faithfully but do not add facts not present in Context. "
                 + "You should combine and synthesize information from multiple lines or sections in the Context when needed. "
                 + "Only if the answer truly cannot be derived from the Context, reply exactly: "
-                + "\"This information is not specified in the provided material.\"";
+                + "\"" + localizedNoContext + "\"";
           }
         } catch (Exception e) {
           // Never break chat due to retrieval issues.
@@ -160,7 +167,7 @@ public class ChatService {
       if ((effectiveStrictMode || vectorOrHybrid) && !hasRagContext) {
         log.info("RAG refusal (requestId={}, username={}): no retrieved context (strict={}, vectorOrHybrid={})",
             requestId, username, effectiveStrictMode, vectorOrHybrid);
-        return ChatResponse.ok(ragNoContextMessage);
+        return ChatResponse.ok(localizedNoContext);
       }
 
       int policyLevel = getEnvInt("PORTAL_POLICY_LEVEL", 1);
@@ -210,9 +217,10 @@ public class ChatService {
             requestId
         );
       } catch (IOException io) {
-        // Resilience path when provider is timing out: return extractive answer from retrieved context.
-        if (!useCasualFlow && hasRagContext && retrievedContext != null && !retrievedContext.isBlank()) {
-          reply = "Based on the provided information, " + bestMatchingSentence(retrievedContext, latestUserMessage);
+        // Safe fallback: do not guess with extractive heuristics on chat timeout/errors.
+        // In docs-only flows, return strict "not specified" message instead of potentially misleading text.
+        if (!useCasualFlow && (effectiveStrictMode || vectorOrHybrid)) {
+          reply = localizedNoContext;
         } else {
           throw io;
         }
@@ -378,6 +386,23 @@ public class ChatService {
     if (userMessage == null) return false;
     String m = userMessage.trim().toLowerCase();
     return m.length() <= 25 && CASUAL_KEYWORDS.contains(m);
+  }
+
+  private String preferredAnswerLanguage(QueryLanguage queryLanguage) {
+    if (queryLanguage == QueryLanguage.PT) return "Portuguese";
+    if (queryLanguage == QueryLanguage.EN) return "English";
+    return "the same language as the user's question";
+  }
+
+  private String localizedNoContextMessage(QueryLanguage queryLanguage, String configured) {
+    String defaultEn = "This information is not specified in the provided material.";
+    if (configured != null && !configured.isBlank() && !defaultEn.equals(configured)) {
+      return configured;
+    }
+    if (queryLanguage == QueryLanguage.PT) {
+      return "Esta informacao nao e especificada no material fornecido.";
+    }
+    return defaultEn;
   }
 
   private IntentType classifyIntent(String userMessage) {

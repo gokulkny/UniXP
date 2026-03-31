@@ -1,1 +1,3 @@
 com\example\universityportal\rag\vector\PgVectorStoreIT.class
+com\example\universityportal\rag\vector\KeywordOverlapRerankerTest.class
+com\example\universityportal\rag\vector\QueryLanguageDetectorTest.class

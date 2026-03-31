@@ -1,0 +1,35 @@
+{
+  "cases": [
+    {
+      "label": "pt->pt",
+      "query": "Qual e o objetivo principal do Edital 07 - 2026.1?",
+      "expectedHasContext": true
+    },
+    {
+      "label": "en->pt",
+      "query": "What is the main objective of Notice 07 - 2026.1?",
+      "expectedHasContext": true
+    },
+    {
+      "label": "pt->pt",
+      "query": "Como funciona o programa Educacao sem Fronteiras?",
+      "expectedHasContext": true
+    },
+    {
+      "label": "pt->pt",
+      "query": "Quais sao as linhas de pesquisa dos cursos de mestrado e doutorado em educacao?",
+      "expectedHasContext": true
+    },
+    {
+      "label": "en->en",
+      "query": "What font is mandatory for submissions?",
+      "expectedHasContext": true
+    },
+    {
+      "label": "negative",
+      "query": "Who won the 2022 football world cup?",
+      "expectedHasContext": false
+    }
+  ]
+}
+

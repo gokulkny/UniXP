@@ -66,8 +66,8 @@ public class OpenRouterChatClient {
 
     String referer = getenv("PORTAL_OPENROUTER_HTTP_REFERER", null);
     String title = getenv("PORTAL_OPENROUTER_TITLE", null);
-    int requestTimeoutSeconds = getenvInt("PORTAL_OPENROUTER_TIMEOUT_SECONDS", 90);
-    if (requestTimeoutSeconds < 1) requestTimeoutSeconds = 90;
+    int requestTimeoutSeconds = getenvInt("PORTAL_OPENROUTER_TIMEOUT_SECONDS", 35);
+    if (requestTimeoutSeconds < 1) requestTimeoutSeconds = 35;
 
     String payloadJson = objectMapper.writeValueAsString(payload);
     HttpRequest.Builder builder = HttpRequest.newBuilder()

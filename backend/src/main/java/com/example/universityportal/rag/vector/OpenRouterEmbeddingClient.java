@@ -13,6 +13,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -42,6 +43,12 @@ public class OpenRouterEmbeddingClient implements EmbeddingClient {
   @Value("${portal.embedding.timeout-seconds:60}")
   private int timeoutSeconds;
 
+  @Value("${portal.embedding.max-retries:2}")
+  private int maxRetries;
+
+  @Value("${portal.embedding.retry-backoff-ms:1200}")
+  private int retryBackoffMs;
+
   @Override
   public float[] embed(String text) throws IOException, InterruptedException {
     List<float[]> batch = embedBatch(List.of(text));
@@ -51,22 +58,83 @@ public class OpenRouterEmbeddingClient implements EmbeddingClient {
   @Override
   public List<float[]> embedBatch(List<String> texts) throws IOException, InterruptedException {
     if (texts == null || texts.isEmpty()) return List.of();
+    return embedBatchAdaptive(texts, 0);
+  }
 
-    List<float[]> parsed = postEmbeddingsRequest(texts);
-    if (parsed != null) {
-      return validateDimensions(parsed);
-    }
+  private List<float[]> embedBatchAdaptive(List<String> texts, int depth) throws IOException, InterruptedException {
+    if (texts == null || texts.isEmpty()) return List.of();
 
-    log.warn("Batch embedding returned unexpected shape; retrying one string at a time ({} items)", texts.size());
-    List<float[]> out = new ArrayList<>(texts.size());
-    for (String t : texts) {
-      List<float[]> one = postEmbeddingsRequest(List.of(t));
-      if (one == null) {
-        throw new IOException("Single-item embedding failed after batch shape mismatch");
+    try {
+      List<float[]> parsed = postEmbeddingsRequestWithRetries(texts);
+      if (parsed != null) {
+        return validateDimensions(parsed);
       }
-      out.addAll(validateDimensions(one));
+
+      // Unexpected shape: split batch to reduce risk of provider-side truncation/ordering issues.
+      if (texts.size() > 1) {
+        int mid = Math.max(1, texts.size() / 2);
+        log.warn("Embedding shape mismatch for batch={}, splitting into {} + {} (depth={})",
+            texts.size(), mid, texts.size() - mid, depth);
+        List<float[]> left = embedBatchAdaptive(texts.subList(0, mid), depth + 1);
+        List<float[]> right = embedBatchAdaptive(texts.subList(mid, texts.size()), depth + 1);
+        List<float[]> merged = new ArrayList<>(left.size() + right.size());
+        merged.addAll(left);
+        merged.addAll(right);
+        return merged;
+      }
+      throw new IOException("Single-item embedding failed after shape mismatch");
+    } catch (HttpTimeoutException e) {
+      if (texts.size() > 1) {
+        int mid = Math.max(1, texts.size() / 2);
+        log.warn("Embedding timeout for batch={}, splitting into {} + {} (depth={})",
+            texts.size(), mid, texts.size() - mid, depth);
+        List<float[]> left = embedBatchAdaptive(texts.subList(0, mid), depth + 1);
+        List<float[]> right = embedBatchAdaptive(texts.subList(mid, texts.size()), depth + 1);
+        List<float[]> merged = new ArrayList<>(left.size() + right.size());
+        merged.addAll(left);
+        merged.addAll(right);
+        return merged;
+      }
+      throw e;
+    } catch (IOException e) {
+      if (isTransientEmbeddingFailure(e) && texts.size() > 1) {
+        int mid = Math.max(1, texts.size() / 2);
+        log.warn("Embedding transient HTTP failure for batch={}, splitting into {} + {} (depth={}): {}",
+            texts.size(), mid, texts.size() - mid, depth, e.getMessage());
+        List<float[]> left = embedBatchAdaptive(texts.subList(0, mid), depth + 1);
+        List<float[]> right = embedBatchAdaptive(texts.subList(mid, texts.size()), depth + 1);
+        List<float[]> merged = new ArrayList<>(left.size() + right.size());
+        merged.addAll(left);
+        merged.addAll(right);
+        return merged;
+      }
+      throw e;
     }
-    return out;
+  }
+
+  private List<float[]> postEmbeddingsRequestWithRetries(List<String> texts) throws IOException, InterruptedException {
+    int attempts = Math.max(0, maxRetries) + 1;
+    IOException last = null;
+    for (int i = 1; i <= attempts; i++) {
+      try {
+        return postEmbeddingsRequest(texts);
+      } catch (HttpTimeoutException e) {
+        last = e;
+        if (i >= attempts) break;
+        long backoff = (long) Math.max(200, retryBackoffMs) * i;
+        log.warn("Embedding timeout (attempt {}/{}), retrying in {}ms for batch={}",
+            i, attempts, backoff, texts.size());
+        Thread.sleep(backoff);
+      } catch (EmbeddingHttpException e) {
+        last = e;
+        if (!isRetryableStatus(e.statusCode()) || i >= attempts) break;
+        long backoff = (long) Math.max(200, retryBackoffMs) * i;
+        log.warn("Embedding API transient status={} (attempt {}/{}), retrying in {}ms for batch={}",
+            e.statusCode(), i, attempts, backoff, texts.size());
+        Thread.sleep(backoff);
+      }
+    }
+    throw last == null ? new IOException("Embedding request failed without details") : last;
   }
 
   /**
@@ -98,7 +166,7 @@ public class OpenRouterEmbeddingClient implements EmbeddingClient {
     HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
     if (response.statusCode() < 200 || response.statusCode() >= 300) {
       log.warn("Embedding API failed status={}, body={}", response.statusCode(), truncate(response.body(), 500));
-      throw new IOException("Embedding request failed with status " + response.statusCode());
+      throw new EmbeddingHttpException(response.statusCode(), "Embedding request failed with status " + response.statusCode());
     }
 
     JsonNode root = objectMapper.readTree(response.body());
@@ -152,5 +220,30 @@ public class OpenRouterEmbeddingClient implements EmbeddingClient {
     if (s == null) return "";
     if (s.length() <= max) return s;
     return s.substring(0, max) + "…";
+  }
+
+  private static boolean isRetryableStatus(int status) {
+    return status == 408 || status == 429 || (status >= 500 && status <= 599);
+  }
+
+  private static boolean isTransientEmbeddingFailure(IOException e) {
+    if (e instanceof HttpTimeoutException) return true;
+    if (e instanceof EmbeddingHttpException ex) {
+      return isRetryableStatus(ex.statusCode());
+    }
+    return false;
+  }
+
+  private static final class EmbeddingHttpException extends IOException {
+    private final int statusCode;
+
+    EmbeddingHttpException(int statusCode, String message) {
+      super(message);
+      this.statusCode = statusCode;
+    }
+
+    int statusCode() {
+      return statusCode;
+    }
   }
 }
