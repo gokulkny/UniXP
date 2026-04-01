@@ -1,6 +1,7 @@
 package com.example.universityportal.rag.vector;
 
 import com.example.universityportal.rag.DrivePdfDocument;
+import com.example.universityportal.rag.DrivePdfChunk;
 import com.example.universityportal.rag.GoogleDrivePdfLoader;
 import com.example.universityportal.rag.RagEnvKeys;
 import org.slf4j.Logger;
@@ -9,6 +10,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.annotation.Profile;
 import org.springframework.context.event.EventListener;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import java.util.ArrayList;
@@ -25,19 +27,22 @@ public class VectorRagIndexService {
   private final VectorStore vectorStore;
   private final RagRetrievalProperties ragProperties;
   private final JdbcTemplate jdbcTemplate;
+  private final int embeddingDimension;
 
   public VectorRagIndexService(
       GoogleDrivePdfLoader drivePdfLoader,
       EmbeddingClient embeddingClient,
       VectorStore vectorStore,
       RagRetrievalProperties ragProperties,
-      JdbcTemplate jdbcTemplate
+      JdbcTemplate jdbcTemplate,
+      @Value("${portal.embedding.dimension:1536}") int embeddingDimension
   ) {
     this.drivePdfLoader = drivePdfLoader;
     this.embeddingClient = embeddingClient;
     this.vectorStore = vectorStore;
     this.ragProperties = ragProperties;
     this.jdbcTemplate = jdbcTemplate;
+    this.embeddingDimension = embeddingDimension;
   }
 
   /** Runs after the app is fully started (avoids ordering issues vs. Flyway / web tier). */
@@ -48,7 +53,7 @@ public class VectorRagIndexService {
     if (mode != RagRetrievalProperties.RetrievalMode.vector && mode != RagRetrievalProperties.RetrievalMode.hybrid) {
       log.warn(
           "Vector RAG indexing skipped: need portal.rag.retrieval-mode=vector or hybrid (current={}). "
-              + "Table rag_chunk will stay empty until you enable vector/hybrid and restart.",
+              + "Vector chunk tables will stay empty until you enable vector/hybrid and restart.",
           mode
       );
       return;
@@ -58,28 +63,33 @@ public class VectorRagIndexService {
     if (sa == null || sa.isBlank()) {
       log.warn(
           "Vector RAG indexing skipped: PORTAL_GOOGLE_SERVICE_ACCOUNT_JSON is not set. "
-              + "No rows will be written to rag_chunk."
+              + "No rows will be written to the active vector table."
       );
       return;
     }
 
-    log.info("Vector RAG: starting full index from Google Drive into Postgres (rag_chunk)...");
+    log.info(
+        "Vector RAG: starting full index from Google Drive into Postgres (table={}, dimension={})...",
+        VectorTableNames.chunksTable(embeddingDimension),
+        embeddingDimension
+    );
     logRagChunkCount("before indexing");
     try {
       indexAll(sa);
       logRagChunkCount("after indexing");
     } catch (Exception e) {
-      log.error("Vector RAG indexing failed; rag_chunk may be empty or partial", e);
+      log.error("Vector RAG indexing failed; vector table may be empty or partial", e);
       logRagChunkCount("after failure");
     }
   }
 
   private void logRagChunkCount(String label) {
+    String table = VectorTableNames.chunksTable(embeddingDimension);
     try {
-      Long n = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM rag_chunk", Long.class);
-      log.info("Vector RAG: rag_chunk row count {}: {}", label, n);
+      Long n = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM " + table, Long.class);
+      log.info("Vector RAG: {} row count {}: {}", table, label, n);
     } catch (Exception e) {
-      log.warn("Vector RAG: could not read rag_chunk count ({}): {}", label, e.getMessage());
+      log.warn("Vector RAG: could not read {} count ({}): {}", table, label, e.getMessage());
     }
   }
 
@@ -98,34 +108,35 @@ public class VectorRagIndexService {
     if (docs.isEmpty()) {
       log.warn(
           "Vector RAG: no documents returned from Drive (check portal.drive.fileIds, sharing, and PDF text). "
-              + "rag_chunk will remain empty."
+              + "the active vector table will remain empty."
       );
       return;
     }
     log.info("Vector RAG: loaded {} PDF document(s) from Drive; embedding and upserting...", docs.size());
 
     for (DrivePdfDocument doc : docs) {
-      log.info("Vector indexing file id={}, name={}, chunks={}",
-          doc.sourceFileId(), doc.sourceFileName(), doc.chunkTexts().size());
+      log.info("Vector indexing file id={}, name={}, docId={}, chunks={}",
+          doc.sourceFileId(), doc.sourceFileName(), doc.docId(), doc.chunks().size());
       vectorStore.deleteBySourceFileId(doc.sourceFileId());
 
-      List<String> texts = doc.chunkTexts();
-      List<String> batchTexts = new ArrayList<>();
+      List<DrivePdfChunk> chunks = doc.chunks();
+      List<DrivePdfChunk> batchChunks = new ArrayList<>();
       List<Integer> batchIndices = new ArrayList<>();
 
-      for (int i = 0; i < texts.size(); i++) {
-        String text = texts.get(i);
+      for (int i = 0; i < chunks.size(); i++) {
+        DrivePdfChunk chunk = chunks.get(i);
+        String text = chunk.content();
         if (text == null || text.isBlank()) continue;
-        batchTexts.add(text);
-        batchIndices.add(i);
-        if (batchTexts.size() >= batchSize) {
-          flushEmbeddings(doc, batchTexts, batchIndices);
-          batchTexts.clear();
+        batchChunks.add(chunk);
+        batchIndices.add(chunk.chunkIndex());
+        if (batchChunks.size() >= batchSize) {
+          flushEmbeddings(doc, batchChunks, batchIndices);
+          batchChunks.clear();
           batchIndices.clear();
         }
       }
-      if (!batchTexts.isEmpty()) {
-        flushEmbeddings(doc, batchTexts, batchIndices);
+      if (!batchChunks.isEmpty()) {
+        flushEmbeddings(doc, batchChunks, batchIndices);
       }
     }
 
@@ -133,8 +144,12 @@ public class VectorRagIndexService {
     logRagChunkCount("after indexAll loop");
   }
 
-  private void flushEmbeddings(DrivePdfDocument doc, List<String> texts, List<Integer> indices)
+  private void flushEmbeddings(DrivePdfDocument doc, List<DrivePdfChunk> chunks, List<Integer> indices)
       throws java.io.IOException, InterruptedException {
+    List<String> texts = new ArrayList<>(chunks.size());
+    for (DrivePdfChunk chunk : chunks) {
+      texts.add(chunk.content());
+    }
     List<float[]> vectors = embeddingClient.embedBatch(texts);
     if (vectors.size() != texts.size()) {
       throw new IllegalStateException("Embedding batch size mismatch");
@@ -145,7 +160,10 @@ public class VectorRagIndexService {
           UUID.randomUUID(),
           doc.sourceFileId(),
           doc.sourceFileName(),
+          doc.docId(),
           indices.get(j),
+          chunks.get(j).section(),
+          chunks.get(j).topic(),
           texts.get(j),
           vectors.get(j)
       ));

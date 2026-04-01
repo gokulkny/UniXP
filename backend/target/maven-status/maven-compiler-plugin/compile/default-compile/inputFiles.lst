@@ -13,6 +13,7 @@ C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal
 C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal\dto\LoginResponse.java
 C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal\dto\MeResponse.java
 C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal\PortalApplication.java
+C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal\rag\DrivePdfChunk.java
 C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal\rag\DrivePdfDocument.java
 C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal\rag\DrivePdfTextUtils.java
 C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal\rag\GoogleDrivePdfLoader.java
@@ -24,6 +25,7 @@ C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal
 C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal\rag\vector\EmbeddingClient.java
 C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal\rag\vector\KeywordOverlapReranker.java
 C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal\rag\vector\OpenRouterEmbeddingClient.java
+C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal\rag\vector\OpenRouterQueryTranslator.java
 C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal\rag\vector\PgVectorStore.java
 C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal\rag\vector\QueryLanguage.java
 C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal\rag\vector\QueryLanguageDetector.java
@@ -33,4 +35,5 @@ C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal
 C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal\rag\vector\VectorRagRetriever.java
 C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal\rag\vector\VectorSearchResult.java
 C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal\rag\vector\VectorStore.java
+C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal\rag\vector\VectorTableNames.java
 C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal\security\TokenService.java

@@ -1,6 +1,7 @@
 package com.example.universityportal.rag.vector;
 
 import org.postgresql.util.PGobject;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -14,14 +15,21 @@ import java.util.UUID;
 @Profile("vector")
 public class PgVectorStore implements VectorStore {
   private final JdbcTemplate jdbcTemplate;
+  /** Active table for upsert/search; matches {@code portal.embedding.dimension}. */
+  private final String chunksTable;
 
-  public PgVectorStore(JdbcTemplate jdbcTemplate) {
+  public PgVectorStore(
+      JdbcTemplate jdbcTemplate,
+      @Value("${portal.embedding.dimension:1536}") int embeddingDimension
+  ) {
     this.jdbcTemplate = jdbcTemplate;
+    this.chunksTable = VectorTableNames.chunksTable(embeddingDimension);
   }
 
   @Override
   public void deleteBySourceFileId(String sourceFileId) {
-    jdbcTemplate.update("DELETE FROM rag_chunk WHERE source_file_id = ?", sourceFileId);
+    jdbcTemplate.update("DELETE FROM " + VectorTableNames.TABLE_1536 + " WHERE source_file_id = ?", sourceFileId);
+    jdbcTemplate.update("DELETE FROM " + VectorTableNames.TABLE_4096 + " WHERE source_file_id = ?", sourceFileId);
   }
 
   @Override
@@ -29,14 +37,17 @@ public class PgVectorStore implements VectorStore {
     if (chunks == null || chunks.isEmpty()) return;
     // Use plain ? for PGobject(type=vector); ::vector cast in SQL can break JDBC binding.
     String sql = """
-        INSERT INTO rag_chunk (id, source_file_id, source_file_name, chunk_index, content, embedding)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO %s (id, source_file_id, source_file_name, doc_id, chunk_index, section, topic, content, embedding)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (source_file_id, chunk_index)
         DO UPDATE SET
           source_file_name = EXCLUDED.source_file_name,
+          doc_id = EXCLUDED.doc_id,
+          section = EXCLUDED.section,
+          topic = EXCLUDED.topic,
           content = EXCLUDED.content,
           embedding = EXCLUDED.embedding
-        """;
+        """.formatted(chunksTable);
     for (VectorChunkRecord c : chunks) {
       try {
         PGobject vec = toPgVector(c.embedding());
@@ -44,7 +55,10 @@ public class PgVectorStore implements VectorStore {
             c.id(),
             c.sourceFileId(),
             c.sourceFileName(),
+            c.docId(),
             c.chunkIndex(),
+            c.section(),
+            c.topic(),
             c.content(),
             vec
         );
@@ -60,20 +74,24 @@ public class PgVectorStore implements VectorStore {
     try {
       PGobject queryVec = toPgVector(queryEmbedding);
       String sql = """
-          SELECT id, source_file_id, source_file_name, content,
+          SELECT id, source_file_id, source_file_name, doc_id, section, topic, content,
                  (embedding <=> ?::vector) AS distance
-          FROM rag_chunk
+          FROM %s
           ORDER BY embedding <=> ?::vector ASC
           LIMIT ?
-          """;
+          """.formatted(chunksTable);
       return jdbcTemplate.query(sql, (rs, rowNum) -> {
         double distance = rs.getDouble("distance");
+        double similarity = 1.0 - distance; // cosine distance -> similarity-like score [approx 0..1]
         return new VectorSearchResult(
             rs.getObject("id", UUID.class),
             rs.getString("source_file_id"),
             rs.getString("source_file_name"),
+            rs.getString("doc_id"),
+            rs.getString("section"),
+            rs.getString("topic"),
             rs.getString("content"),
-            -distance
+            similarity
         );
       }, queryVec, queryVec, topK);
     } catch (SQLException e) {
@@ -97,31 +115,79 @@ public class PgVectorStore implements VectorStore {
     }
     if (clean.isEmpty()) return List.of();
 
-    StringBuilder scoreExpr = new StringBuilder();
+    String queryText = String.join(" ", clean);
+    List<Object> args = new ArrayList<>();
+    args.add(queryText);
+    args.add(queryText);
+    args.add(limit);
+
+    String sql = """
+        SELECT id, source_file_id, source_file_name, doc_id, section, topic, content,
+               ts_rank_cd(content_tsv, websearch_to_tsquery('portuguese', ?)) AS lex_score
+        FROM %s
+        WHERE content_tsv @@ websearch_to_tsquery('portuguese', ?)
+        ORDER BY lex_score DESC, chunk_index ASC
+        LIMIT ?
+        """.formatted(chunksTable);
+
+    return jdbcTemplate.query(sql, (rs, rowNum) -> new VectorSearchResult(
+        rs.getObject("id", UUID.class),
+        rs.getString("source_file_id"),
+        rs.getString("source_file_name"),
+        rs.getString("doc_id"),
+        rs.getString("section"),
+        rs.getString("topic"),
+        rs.getString("content"),
+        rs.getDouble("lex_score")
+    ), args.toArray());
+  }
+
+  @Override
+  public List<VectorSearchResult> searchByLexicalTokensSimple(List<String> tokens, int limit) {
+    if (tokens == null || tokens.isEmpty()) return List.of();
+    if (limit < 1) limit = 10;
+
+    LinkedHashSet<String> clean = new LinkedHashSet<>();
+    for (String t : tokens) {
+      if (t == null) continue;
+      String s = t.trim().toLowerCase();
+      if (s.isBlank()) continue;
+      if (s.length() == 1) continue;
+      clean.add(s);
+      if (clean.size() >= 8) break;
+    }
+    if (clean.isEmpty()) return List.of();
+
+    StringBuilder where = new StringBuilder(" WHERE (");
     List<Object> args = new ArrayList<>();
     int i = 0;
     for (String token : clean) {
-      if (i > 0) scoreExpr.append(" + ");
-      scoreExpr.append("CASE WHEN LOWER(content) LIKE ? OR LOWER(source_file_name) LIKE ? THEN 1 ELSE 0 END");
-      args.add("%" + token + "%");
+      if (i > 0) where.append(" OR ");
+      where.append("LOWER(content) LIKE ?");
       args.add("%" + token + "%");
       i++;
     }
+    where.append(")");
 
     String sql = """
-        SELECT id, source_file_id, source_file_name, content, (%s) AS lex_score
-        FROM rag_chunk
-        ORDER BY lex_score DESC, chunk_index ASC
+        SELECT id, source_file_id, source_file_name, doc_id, section, topic, content, chunk_index
+        FROM %s
+        %s
+        ORDER BY chunk_index ASC
         LIMIT ?
-        """.formatted(scoreExpr);
+        """.formatted(chunksTable, where);
+
     args.add(limit);
 
     return jdbcTemplate.query(sql, (rs, rowNum) -> new VectorSearchResult(
         rs.getObject("id", UUID.class),
         rs.getString("source_file_id"),
         rs.getString("source_file_name"),
+        rs.getString("doc_id"),
+        rs.getString("section"),
+        rs.getString("topic"),
         rs.getString("content"),
-        rs.getDouble("lex_score")
+        0.08
     ), args.toArray());
   }
 
@@ -145,16 +211,16 @@ public class PgVectorStore implements VectorStore {
       placeholders.append("?");
     }
     String sql = """
-        SELECT id, source_file_id, source_file_name, content, chunk_index
+        SELECT id, source_file_id, source_file_name, doc_id, section, topic, content, chunk_index
         FROM (
-          SELECT id, source_file_id, source_file_name, content, chunk_index,
+          SELECT id, source_file_id, source_file_name, doc_id, section, topic, content, chunk_index,
                  ROW_NUMBER() OVER (PARTITION BY source_file_id ORDER BY chunk_index ASC) AS rn
-          FROM rag_chunk
+          FROM %s
           WHERE source_file_id IN (%s)
         ) t
         WHERE rn <= ?
         ORDER BY source_file_id ASC, chunk_index ASC
-        """.formatted(placeholders);
+        """.formatted(chunksTable, placeholders);
 
     List<Object> args = new ArrayList<>(clean.size() + 1);
     args.addAll(clean);
@@ -163,6 +229,9 @@ public class PgVectorStore implements VectorStore {
         rs.getObject("id", UUID.class),
         rs.getString("source_file_id"),
         rs.getString("source_file_name"),
+        rs.getString("doc_id"),
+        rs.getString("section"),
+        rs.getString("topic"),
         rs.getString("content"),
         // Mild prior; reranker will order final list.
         0.05
@@ -184,31 +253,26 @@ public class PgVectorStore implements VectorStore {
     }
     if (clean.isEmpty()) return List.of();
 
-    StringBuilder where = new StringBuilder(" WHERE ");
+    String queryText = String.join(" ", clean);
     List<Object> args = new ArrayList<>();
-    int i = 0;
-    for (String token : clean) {
-      if (i > 0) where.append(" AND ");
-      where.append("(LOWER(content) LIKE ? OR LOWER(source_file_name) LIKE ?)");
-      String like = "%" + token + "%";
-      args.add(like);
-      args.add(like);
-      i++;
-    }
+    args.add(queryText);
+    args.add(limit);
 
     String sql = """
-        SELECT id, source_file_id, source_file_name, content, chunk_index
-        FROM rag_chunk
-        %s
+        SELECT id, source_file_id, source_file_name, doc_id, section, topic, content, chunk_index
+        FROM %s
+        WHERE content_tsv @@ plainto_tsquery('portuguese', ?)
         ORDER BY chunk_index ASC
         LIMIT ?
-        """.formatted(where);
-    args.add(limit);
+        """.formatted(chunksTable);
 
     return jdbcTemplate.query(sql, (rs, rowNum) -> new VectorSearchResult(
         rs.getObject("id", UUID.class),
         rs.getString("source_file_id"),
         rs.getString("source_file_name"),
+        rs.getString("doc_id"),
+        rs.getString("section"),
+        rs.getString("topic"),
         rs.getString("content"),
         10.0
     ), args.toArray());

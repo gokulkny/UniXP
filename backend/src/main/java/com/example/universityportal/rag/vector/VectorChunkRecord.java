@@ -6,7 +6,10 @@ public record VectorChunkRecord(
     UUID id,
     String sourceFileId,
     String sourceFileName,
+    String docId,
     int chunkIndex,
+    String section,
+    String topic,
     String content,
     float[] embedding
 ) {}

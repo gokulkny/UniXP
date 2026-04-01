@@ -34,7 +34,7 @@ public class OpenRouterEmbeddingClient implements EmbeddingClient {
   @Value("${portal.embedding.base-url:https://openrouter.ai/api/v1}")
   private String baseUrl;
 
-  @Value("${portal.embedding.model:openai/text-embedding-3-small}")
+  @Value("${portal.embedding.model:qwen/qwen3-embedding-8b}")
   private String model;
 
   @Value("${portal.embedding.dimension:1536}")

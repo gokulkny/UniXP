@@ -3,7 +3,9 @@ package com.example.universityportal.api;
 import com.example.universityportal.rag.vector.RagRetrievalProperties;
 import com.example.universityportal.rag.vector.VectorRagIndexService;
 import com.example.universityportal.rag.vector.VectorRagRetriever;
+import com.example.universityportal.rag.vector.VectorTableNames;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.env.Environment;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -30,19 +32,22 @@ public class RagDiagnosticsController {
   private final ObjectProvider<JdbcTemplate> jdbcTemplate;
   private final ObjectProvider<VectorRagIndexService> indexService;
   private final ObjectProvider<VectorRagRetriever> retriever;
+  private final int embeddingDimension;
 
   public RagDiagnosticsController(
       Environment environment,
       RagRetrievalProperties ragProperties,
       ObjectProvider<JdbcTemplate> jdbcTemplate,
       ObjectProvider<VectorRagIndexService> indexService,
-      ObjectProvider<VectorRagRetriever> retriever
+      ObjectProvider<VectorRagRetriever> retriever,
+      @Value("${portal.embedding.dimension:1536}") int embeddingDimension
   ) {
     this.environment = environment;
     this.ragProperties = ragProperties;
     this.jdbcTemplate = jdbcTemplate;
     this.indexService = indexService;
     this.retriever = retriever;
+    this.embeddingDimension = embeddingDimension;
   }
 
   @GetMapping("/status")
@@ -55,19 +60,28 @@ public class RagDiagnosticsController {
     body.put("vectorRagIndexServicePresent", indexService.getIfAvailable() != null);
     body.put("portalGoogleServiceAccountJsonSet", isEnvSet("PORTAL_GOOGLE_SERVICE_ACCOUNT_JSON"));
     body.put("portalOpenRouterApiKeySet", isEnvSet("PORTAL_OPENROUTER_API_KEY"));
+    body.put("portalEmbeddingDimension", embeddingDimension);
+    body.put("activeRagChunkTable", VectorTableNames.chunksTable(embeddingDimension));
 
     JdbcTemplate jdbc = jdbcTemplate.getIfAvailable();
     if (jdbc == null) {
       body.put("ragChunkCount", null);
+      body.put("ragChunkCount1536", null);
+      body.put("ragChunkCount4096", null);
       body.put("ragChunkError", "No JdbcTemplate (use profile 'vector' with spring.datasource.*)");
       return ResponseEntity.ok(body);
     }
     try {
-      Long n = jdbc.queryForObject("SELECT COUNT(*) FROM rag_chunk", Long.class);
-      body.put("ragChunkCount", n);
+      Long n1536 = jdbc.queryForObject("SELECT COUNT(*) FROM " + VectorTableNames.TABLE_1536, Long.class);
+      Long n4096 = jdbc.queryForObject("SELECT COUNT(*) FROM " + VectorTableNames.TABLE_4096, Long.class);
+      body.put("ragChunkCount1536", n1536);
+      body.put("ragChunkCount4096", n4096);
+      body.put("ragChunkCount", embeddingDimension == 4096 ? n4096 : n1536);
       body.put("ragChunkError", null);
     } catch (Exception e) {
       body.put("ragChunkCount", null);
+      body.put("ragChunkCount1536", null);
+      body.put("ragChunkCount4096", null);
       body.put("ragChunkError", e.getMessage());
     }
     return ResponseEntity.ok(body);
@@ -93,8 +107,11 @@ public class RagDiagnosticsController {
       body.put("ok", true);
       JdbcTemplate jdbc = jdbcTemplate.getIfAvailable();
       if (jdbc != null) {
-        Long n = jdbc.queryForObject("SELECT COUNT(*) FROM rag_chunk", Long.class);
-        body.put("ragChunkCount", n);
+        Long n1536 = jdbc.queryForObject("SELECT COUNT(*) FROM " + VectorTableNames.TABLE_1536, Long.class);
+        Long n4096 = jdbc.queryForObject("SELECT COUNT(*) FROM " + VectorTableNames.TABLE_4096, Long.class);
+        body.put("ragChunkCount1536", n1536);
+        body.put("ragChunkCount4096", n4096);
+        body.put("ragChunkCount", embeddingDimension == 4096 ? n4096 : n1536);
       }
       return ResponseEntity.ok(body);
     } catch (Exception e) {

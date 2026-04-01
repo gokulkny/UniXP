@@ -33,6 +33,7 @@ class PgVectorStoreIT {
     registry.add("spring.datasource.username", postgres::getUsername);
     registry.add("spring.datasource.password", postgres::getPassword);
     registry.add("spring.datasource.driver-class-name", () -> "org.postgresql.Driver");
+    registry.add("portal.embedding.dimension", () -> "1536");
   }
 
   @Autowired
@@ -50,7 +51,10 @@ class PgVectorStoreIT {
             UUID.randomUUID(),
             "test-file",
             "test.pdf",
+            "TEST_DOC",
             0,
+            "3.5.2",
+            "documentos doutorado",
             "APA style requires author and year in parenthetical citations.",
             vec
         )

@@ -8,5 +8,6 @@ import java.util.List;
 public record DrivePdfDocument(
     String sourceFileId,
     String sourceFileName,
-    List<String> chunkTexts
+    String docId,
+    List<DrivePdfChunk> chunks
 ) {}

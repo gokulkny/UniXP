@@ -15,6 +15,9 @@ class KeywordOverlapRerankerTest {
         UUID.randomUUID(),
         "doc-a",
         "generic",
+        "DOC_A",
+        "1.0",
+        "geral",
         "analise bibliometrica no trienio 2007 a 2009",
         0.80
     );
@@ -22,6 +25,9 @@ class KeywordOverlapRerankerTest {
         UUID.randomUUID(),
         "doc-b",
         "edital_07_2026_1",
+        "EDITAL_07_2026_1",
+        "3.5.2",
+        "documentos doutorado",
         "edital 07 2026 1 objetivo principal",
         0.70
     );
@@ -39,6 +45,9 @@ class KeywordOverlapRerankerTest {
         UUID.randomUUID(),
         "doc-en",
         "notice",
+        "NOTICE",
+        "2.1",
+        "requirements",
         "main objective of notice and selection process",
         0.60
     );
@@ -46,6 +55,9 @@ class KeywordOverlapRerankerTest {
         UUID.randomUUID(),
         "doc-pt",
         "edital",
+        "EDITAL",
+        "2.1",
+        "requisitos",
         "objetivo principal do edital e processo seletivo",
         0.60
     );

@@ -124,7 +124,7 @@ public class ChatService {
       );
       String ragNoContextMessage = getEnv(
           "PORTAL_RAG_NO_CONTEXT_MESSAGE",
-          "This information is not specified in the provided material."
+          "No relevant context found after retrieval retries."
       );
       QueryLanguage queryLanguage = QueryLanguageDetector.detect(userMessage);
       String localizedNoContext = localizedNoContextMessage(queryLanguage, ragNoContextMessage);
@@ -395,12 +395,12 @@ public class ChatService {
   }
 
   private String localizedNoContextMessage(QueryLanguage queryLanguage, String configured) {
-    String defaultEn = "This information is not specified in the provided material.";
+    String defaultEn = "No relevant context found after retrieval retries.";
     if (configured != null && !configured.isBlank() && !defaultEn.equals(configured)) {
       return configured;
     }
     if (queryLanguage == QueryLanguage.PT) {
-      return "Esta informacao nao e especificada no material fornecido.";
+      return "Nenhum contexto relevante foi encontrado apos tentativas de recuperacao.";
     }
     return defaultEn;
   }

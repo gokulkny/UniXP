@@ -19,6 +19,13 @@ public interface VectorStore {
   }
 
   /**
+   * Cross-language substring fallback when FTS returns no rows (e.g. English query vs Portuguese-stemmed tsvector).
+   */
+  default List<VectorSearchResult> searchByLexicalTokensSimple(List<String> tokens, int limit) {
+    return List.of();
+  }
+
+  /**
    * Fetch early chunks (lowest chunk_index) for selected source files.
    */
   default List<VectorSearchResult> fetchLeadingChunksBySource(List<String> sourceFileIds, int perDocLimit) {

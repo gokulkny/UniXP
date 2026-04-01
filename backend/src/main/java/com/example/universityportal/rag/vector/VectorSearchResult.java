@@ -6,6 +6,9 @@ public record VectorSearchResult(
     UUID id,
     String sourceFileId,
     String sourceFileName,
+    String docId,
+    String section,
+    String topic,
     String content,
     double score
 ) {}

@@ -17,6 +17,8 @@ public class RagRetrievalProperties {
   /** Aligned with legacy Drive loader default (120); higher values drop more chunks. */
   private int minChunkChars = 120;
   private int hybridCandidateMultiplier = 2;
+  private double similarityMinScore = 0.35;
+  private int maxRetryVariants = 4;
 
   public RetrievalMode getRetrievalMode() {
     return retrievalMode;
@@ -64,5 +66,21 @@ public class RagRetrievalProperties {
 
   public void setHybridCandidateMultiplier(int hybridCandidateMultiplier) {
     this.hybridCandidateMultiplier = hybridCandidateMultiplier;
+  }
+
+  public double getSimilarityMinScore() {
+    return similarityMinScore;
+  }
+
+  public void setSimilarityMinScore(double similarityMinScore) {
+    this.similarityMinScore = similarityMinScore;
+  }
+
+  public int getMaxRetryVariants() {
+    return maxRetryVariants;
+  }
+
+  public void setMaxRetryVariants(int maxRetryVariants) {
+    this.maxRetryVariants = maxRetryVariants;
   }
 }

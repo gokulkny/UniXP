@@ -154,7 +154,8 @@ public class GoogleDrivePdfRagService {
       List<DrivePdfDocument> docs = pdfLoader.loadChunkedDocuments(envServiceAccountJson, chunkSize, chunkOverlap, 120);
       List<RagChunk> allChunks = new ArrayList<>();
       for (DrivePdfDocument doc : docs) {
-        for (String normalized : doc.chunkTexts()) {
+        for (DrivePdfChunk chunk : doc.chunks()) {
+          String normalized = chunk.content();
           List<String> tokens = tokenizeForRag(normalized, true);
           if (tokens.isEmpty()) continue;
           Map<String, Integer> tf = termCounts(tokens);

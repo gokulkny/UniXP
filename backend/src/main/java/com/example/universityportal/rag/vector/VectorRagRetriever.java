@@ -7,9 +7,11 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -17,20 +19,23 @@ import java.util.regex.Pattern;
 @Profile("vector")
 public class VectorRagRetriever {
   private static final Logger log = LoggerFactory.getLogger(VectorRagRetriever.class);
-  private static final Pattern ID_PATTERN = Pattern.compile("\\b\\d{1,4}(?:[./-]\\d{1,2})?\\b");
+  private static final Pattern ID_PATTERN = Pattern.compile("\\b\\d{1,4}(?:[./-]\\d{1,4}){0,2}\\b");
 
   private final EmbeddingClient embeddingClient;
   private final VectorStore vectorStore;
   private final RagRetrievalProperties properties;
+  private final OpenRouterQueryTranslator queryTranslator;
 
   public VectorRagRetriever(
       EmbeddingClient embeddingClient,
       VectorStore vectorStore,
-      RagRetrievalProperties properties
+      RagRetrievalProperties properties,
+      OpenRouterQueryTranslator queryTranslator
   ) {
     this.embeddingClient = embeddingClient;
     this.vectorStore = vectorStore;
     this.properties = properties;
+    this.queryTranslator = queryTranslator;
   }
 
   public Optional<String> retrieve(String query) {
@@ -42,22 +47,32 @@ public class VectorRagRetriever {
     if (query == null || query.isBlank()) return Optional.empty();
 
     QueryLanguage queryLanguage = QueryLanguageDetector.detect(query);
-    List<String> lexicalTokens = KeywordOverlapReranker.tokenize(query);
-    List<String> requiredTokens = identifierTokens(query);
+    String retrievalQuery = normalizeRetrievalQuery(query.trim(), queryLanguage);
+    String preferredDocId = inferPreferredDocId(retrievalQuery);
+    List<String> queryVariants = expandQuery(retrievalQuery);
+    queryVariants.add(query.trim());
+    queryVariants = dedupe(queryVariants);
+    List<String> requiredTokens = identifierTokens(retrievalQuery);
 
     try {
-      float[] qvec = embeddingClient.embed(query.trim());
       int topK = Math.max(1, properties.getTopK());
-      // In pure vector mode, small topK can miss relevant chunks (especially cross-language queries).
-      // Pull a larger candidate pool, then optionally rerank and truncate back to topK.
       int poolMultiplier = Math.max(3, properties.getHybridCandidateMultiplier());
       int pool = Math.min(50, topK * poolMultiplier);
-
       List<VectorSearchResult> required = vectorStore.searchByRequiredTokens(requiredTokens, Math.min(20, pool));
-      List<VectorSearchResult> raw = vectorStore.search(qvec, pool);
-      List<VectorSearchResult> lexical = vectorStore.searchByLexicalTokens(lexicalTokens, Math.min(25, pool));
+      List<VectorSearchResult> raw = new ArrayList<>();
+      List<VectorSearchResult> lexical = new ArrayList<>();
+      // One embedding API call for all variants (avoids N sequential timeouts on slow models).
+      List<float[]> queryVectors = embeddingClient.embedBatch(queryVariants);
+      if (queryVectors.size() != queryVariants.size()) {
+        throw new IllegalStateException("Embedding batch size mismatch");
+      }
+      for (int i = 0; i < queryVariants.size(); i++) {
+        String variant = queryVariants.get(i);
+        raw.addAll(vectorStore.search(queryVectors.get(i), pool));
+        lexical.addAll(vectorStore.searchByLexicalTokens(KeywordOverlapReranker.tokenize(variant), Math.min(25, pool)));
+      }
       List<VectorSearchResult> leading = List.of();
-      if (isIdentifierHeavyQuery(lexicalTokens)) {
+      if (isIdentifierHeavyQuery(KeywordOverlapReranker.tokenize(retrievalQuery))) {
         List<String> sourceIds = topSourceIds(!required.isEmpty() ? required : lexical, 1);
         leading = vectorStore.fetchLeadingChunksBySource(sourceIds, 4);
       }
@@ -68,7 +83,19 @@ public class VectorRagRetriever {
       }
 
       // Lightweight lexical rerank improves precision for identifiers like "Notice 07 – 2026.1".
-      List<VectorSearchResult> ranked = KeywordOverlapReranker.rerank(query, merged, queryLanguage);
+      List<VectorSearchResult> ranked = KeywordOverlapReranker.rerank(retrievalQuery, merged, queryLanguage);
+      ranked = boostPreferredDoc(ranked, preferredDocId);
+      ranked = prioritizePreferredDoc(ranked, preferredDocId);
+      ranked = applyThreshold(ranked);
+      if (ranked.isEmpty() || !contextLooksRelevant(ranked, retrievalQuery)) {
+        int retries = Math.min(Math.max(1, properties.getMaxRetryVariants()), queryVariants.size());
+        for (int i = 0; i < retries; i++) {
+          String variant = queryVariants.get(i);
+          Optional<String> retry = retrieveLexicalFallback(variant, queryLanguage, KeywordOverlapReranker.tokenize(variant), requiredTokens);
+          if (retry.isPresent()) return retry;
+        }
+        return Optional.empty();
+      }
 
       int take = Math.min(ranked.size(), topK);
       List<VectorSearchResult> top = ranked.subList(0, take);
@@ -79,7 +106,7 @@ public class VectorRagRetriever {
       // Embeddings can timeout under provider/network pressure. Fall back to lexical retrieval
       // so strict-from-docs mode can still answer from available chunks.
       log.warn("Vector retrieval failed, using lexical fallback: {}", e.getMessage());
-      return retrieveLexicalFallback(query, queryLanguage, lexicalTokens, requiredTokens);
+      return retrieveLexicalFallback(retrievalQuery, queryLanguage, KeywordOverlapReranker.tokenize(retrievalQuery), requiredTokens);
     }
   }
 
@@ -94,7 +121,11 @@ public class VectorRagRetriever {
     int pool = Math.min(50, topK * poolMultiplier);
 
     List<VectorSearchResult> required = vectorStore.searchByRequiredTokens(requiredTokens, Math.min(20, pool));
-    List<VectorSearchResult> lexical = vectorStore.searchByLexicalTokens(lexicalTokens, Math.min(25, pool));
+    int lexLimit = Math.min(25, pool);
+    List<VectorSearchResult> lexical = vectorStore.searchByLexicalTokens(lexicalTokens, lexLimit);
+    if (lexical.isEmpty()) {
+      lexical = vectorStore.searchByLexicalTokensSimple(lexicalTokens, lexLimit);
+    }
     List<VectorSearchResult> leading = List.of();
     if (isIdentifierHeavyQuery(lexicalTokens)) {
       List<String> sourceIds = topSourceIds(!required.isEmpty() ? required : lexical, 1);
@@ -211,5 +242,102 @@ public class VectorRagRetriever {
       seen.putIfAbsent(t, Boolean.TRUE);
     }
     return new ArrayList<>(seen.keySet());
+  }
+
+  private String normalizeRetrievalQuery(String query, QueryLanguage detectedLanguage) {
+    if (detectedLanguage == QueryLanguage.EN) {
+      try {
+        return queryTranslator.translateToPortuguese(query);
+      } catch (Exception e) {
+        log.warn("Query translation failed, using original query: {}", e.getMessage());
+      }
+    }
+    return query;
+  }
+
+  private List<String> expandQuery(String query) {
+    List<String> variants = new ArrayList<>();
+    variants.add(query);
+    variants.add(query + " edital educacao");
+    variants.add(query + " mestrado doutorado requisitos");
+    variants.add(query + " documentos inscricao doutorado");
+    return variants;
+  }
+
+  private List<VectorSearchResult> applyThreshold(List<VectorSearchResult> ranked) {
+    double minScore = properties.getSimilarityMinScore();
+    if (ranked == null || ranked.isEmpty()) return List.of();
+    List<VectorSearchResult> kept = new ArrayList<>();
+    for (VectorSearchResult s : ranked) {
+      if (s.score() >= minScore || isRequiredTopicChunk(s)) {
+        kept.add(s);
+      }
+    }
+    return kept;
+  }
+
+  private boolean contextLooksRelevant(List<VectorSearchResult> ranked, String query) {
+    List<String> queryTokens = KeywordOverlapReranker.tokenize(query);
+    if (queryTokens.isEmpty()) return true;
+    Set<String> required = new HashSet<>(queryTokens.subList(0, Math.min(4, queryTokens.size())));
+    int hits = 0;
+    for (VectorSearchResult result : ranked) {
+      String content = result.content() == null ? "" : result.content().toLowerCase();
+      for (String token : required) {
+        if (content.contains(token)) {
+          hits++;
+          break;
+        }
+      }
+      if (hits >= Math.min(2, required.size())) return true;
+    }
+    return false;
+  }
+
+  private String inferPreferredDocId(String query) {
+    List<String> ids = identifierTokens(query);
+    if (ids.isEmpty()) return "";
+    return String.join("_", ids).toUpperCase();
+  }
+
+  private List<VectorSearchResult> boostPreferredDoc(List<VectorSearchResult> ranked, String preferredDocId) {
+    if (preferredDocId == null || preferredDocId.isBlank() || ranked == null || ranked.isEmpty()) return ranked;
+    List<VectorSearchResult> boosted = new ArrayList<>();
+    for (VectorSearchResult s : ranked) {
+      if (matchesPreferredDoc(s, preferredDocId)) {
+        boosted.add(new VectorSearchResult(
+            s.id(), s.sourceFileId(), s.sourceFileName(), s.docId(), s.section(), s.topic(), s.content(), s.score() + 0.30
+        ));
+      } else {
+        boosted.add(s);
+      }
+    }
+    boosted.sort((a, b) -> Double.compare(b.score(), a.score()));
+    return boosted;
+  }
+
+  private List<VectorSearchResult> prioritizePreferredDoc(List<VectorSearchResult> ranked, String preferredDocId) {
+    if (preferredDocId == null || preferredDocId.isBlank() || ranked == null || ranked.isEmpty()) return ranked;
+    List<VectorSearchResult> preferred = new ArrayList<>();
+    List<VectorSearchResult> others = new ArrayList<>();
+    for (VectorSearchResult s : ranked) {
+      if (matchesPreferredDoc(s, preferredDocId)) preferred.add(s);
+      else others.add(s);
+    }
+    if (preferred.size() >= Math.max(1, properties.getTopK() / 2)) return preferred;
+    preferred.addAll(others);
+    return preferred;
+  }
+
+  private boolean matchesPreferredDoc(VectorSearchResult s, String preferredDocId) {
+    if (s == null || preferredDocId == null || preferredDocId.isBlank()) return false;
+    if (s.docId() != null && s.docId().toUpperCase().contains(preferredDocId)) return true;
+    return s.sourceFileName() != null && s.sourceFileName().toUpperCase().contains(preferredDocId);
+  }
+
+  private boolean isRequiredTopicChunk(VectorSearchResult s) {
+    if (s == null || s.topic() == null) return false;
+    String t = s.topic().toLowerCase();
+    return t.contains("documentos") || t.contains("inscri") || t.contains("doutorado");
   }
 }

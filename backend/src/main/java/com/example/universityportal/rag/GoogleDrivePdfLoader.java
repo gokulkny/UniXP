@@ -83,24 +83,39 @@ public class GoogleDrivePdfLoader {
         continue;
       }
 
-      List<String> chunkTexts = DrivePdfTextUtils.chunkText(text, chunkSize, chunkOverlap);
-      List<String> kept = new ArrayList<>();
-      for (String ct : chunkTexts) {
-        String normalized = DrivePdfTextUtils.normalizeWhitespace(ct);
-        if (normalized.length() >= minChunkChars) kept.add(normalized);
+      int targetMaxChars = Math.max(1200, chunkSize);
+      int targetMinChars = Math.max(700, targetMaxChars - Math.max(100, chunkOverlap));
+      List<DrivePdfChunk> structuredChunks = DrivePdfTextUtils.chunkStructuredText(text, targetMinChars, targetMaxChars);
+      List<DrivePdfChunk> kept = new ArrayList<>();
+      for (DrivePdfChunk ct : structuredChunks) {
+        String normalized = DrivePdfTextUtils.normalizeWhitespace(ct.content());
+        if (normalized.length() >= minChunkChars) {
+          kept.add(new DrivePdfChunk(ct.chunkIndex(), normalized, ct.section(), ct.topic()));
+        }
       }
       if (!kept.isEmpty()) {
-        out.add(new DrivePdfDocument(meta.getId(), meta.getName() != null ? meta.getName() : "", kept));
+        String fileName = meta.getName() != null ? meta.getName() : "";
+        out.add(new DrivePdfDocument(meta.getId(), fileName, inferDocId(fileName), kept));
         log.info("Prepared {} chunks for PDF id={}, name={}", kept.size(), meta.getId(), meta.getName());
       } else {
         log.warn(
             "GoogleDrivePdfLoader: no chunks met min length {} for id={}, name={} (raw chunks={}, all too short?)",
-            minChunkChars, meta.getId(), meta.getName(), chunkTexts.size()
+            minChunkChars, meta.getId(), meta.getName(), structuredChunks.size()
         );
       }
     }
     log.info("GoogleDrivePdfLoader: finished; {} document(s) with at least one chunk", out.size());
     return out;
+  }
+
+  private String inferDocId(String sourceFileName) {
+    if (sourceFileName == null || sourceFileName.isBlank()) return "UNKNOWN_DOC";
+    String normalized = sourceFileName
+        .replaceAll("\\.pdf$", "")
+        .replaceAll("[^A-Za-z0-9]+", "_")
+        .replaceAll("_+", "_")
+        .toUpperCase(Locale.ROOT);
+    return normalized.isBlank() ? "UNKNOWN_DOC" : normalized;
   }
 
   private List<String> parseFileIds(String csv) {

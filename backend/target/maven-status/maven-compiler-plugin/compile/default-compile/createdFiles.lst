@@ -3,6 +3,7 @@ com\example\universityportal\rag\GoogleDrivePdfRagService$ScoredChunk.class
 com\example\universityportal\rag\vector\KeywordOverlapReranker.class
 com\example\universityportal\rag\vector\QueryLanguage.class
 com\example\universityportal\ai\ChatService.class
+com\example\universityportal\rag\DrivePdfChunk.class
 com\example\universityportal\rag\vector\EmbeddingClient.class
 com\example\universityportal\rag\vector\OpenRouterEmbeddingClient.class
 com\example\universityportal\ai\OpenRouterChatClient.class
@@ -29,12 +30,14 @@ com\example\universityportal\api\AuthController.class
 com\example\universityportal\rag\vector\QueryLanguageDetector.class
 com\example\universityportal\ai\ChatTurn.class
 com\example\universityportal\rag\GoogleDrivePdfLoader.class
+com\example\universityportal\rag\vector\VectorTableNames.class
 com\example\universityportal\dto\ChatResponse.class
 com\example\universityportal\rag\vector\VectorChunkRecord.class
 com\example\universityportal\api\ChatController.class
 com\example\universityportal\rag\vector\RagRetrievalProperties$RetrievalMode.class
 com\example\universityportal\rag\vector\VectorRagRetriever.class
 com\example\universityportal\rag\vector\KeywordOverlapReranker$Scored.class
+com\example\universityportal\rag\vector\OpenRouterQueryTranslator.class
 com\example\universityportal\api\ApiError.class
 com\example\universityportal\rag\RagEnvKeys.class
 com\example\universityportal\api\RagDiagnosticsController.class
