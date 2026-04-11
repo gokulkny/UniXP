@@ -70,19 +70,31 @@ public class PgVectorStore implements VectorStore {
 
   @Override
   public List<VectorSearchResult> search(float[] queryEmbedding, int topK) {
+    return search(queryEmbedding, topK, ChunkSearchConstraints.none());
+  }
+
+  @Override
+  public List<VectorSearchResult> search(float[] queryEmbedding, int topK, ChunkSearchConstraints constraints) {
     if (topK < 1) topK = 5;
+    if (constraints == null) constraints = ChunkSearchConstraints.none();
     try {
       PGobject queryVec = toPgVector(queryEmbedding);
-      String sql = """
+      StringBuilder sql = new StringBuilder();
+      sql.append("""
           SELECT id, source_file_id, source_file_name, doc_id, section, topic, content,
                  (embedding <=> ?::vector) AS distance
           FROM %s
-          ORDER BY embedding <=> ?::vector ASC
-          LIMIT ?
-          """.formatted(chunksTable);
-      return jdbcTemplate.query(sql, (rs, rowNum) -> {
+          """.formatted(chunksTable));
+      List<Object> args = new ArrayList<>();
+      args.add(queryVec);
+      appendConstraintWhere(sql, args, constraints);
+      sql.append(" ORDER BY embedding <=> ?::vector ASC LIMIT ? ");
+      args.add(queryVec);
+      args.add(topK);
+
+      return jdbcTemplate.query(sql.toString(), (rs, rowNum) -> {
         double distance = rs.getDouble("distance");
-        double similarity = 1.0 - distance; // cosine distance -> similarity-like score [approx 0..1]
+        double similarity = 1.0 - distance;
         return new VectorSearchResult(
             rs.getObject("id", UUID.class),
             rs.getString("source_file_id"),
@@ -93,9 +105,45 @@ public class PgVectorStore implements VectorStore {
             rs.getString("content"),
             similarity
         );
-      }, queryVec, queryVec, topK);
+      }, args.toArray());
     } catch (SQLException e) {
       throw new IllegalStateException("Vector search failed", e);
+    }
+  }
+
+  private static void appendConstraintWhere(StringBuilder sql, List<Object> args, ChunkSearchConstraints c) {
+    if (!c.hasSqlFilters()) {
+      sql.append(" WHERE 1=1 ");
+      return;
+    }
+    sql.append(" WHERE 1=1 ");
+    if (c.docIdPattern() != null && !c.docIdPattern().isBlank()) {
+      sql.append(" AND doc_id ILIKE ? ");
+      args.add(c.docIdPattern());
+    }
+    if (c.excludeMajorSection4()) {
+      sql.append(" AND (section IS NULL OR trim(section) = '' OR section NOT LIKE '4.%') ");
+    }
+    if (c.preferInitialSubmissionDocuments() && c.preferredSectionPrefix() != null && !c.preferredSectionPrefix().isBlank()) {
+      String p = c.preferredSectionPrefix().trim();
+      boolean phd = p.startsWith("3.5.2");
+      sql.append(" AND ( ");
+      sql.append(" section LIKE ? OR section = ? ");
+      args.add(p + "%");
+      args.add(p);
+      if (phd) {
+        sql.append("""
+             OR (LOWER(COALESCE(topic,'')) LIKE '%documento%' AND LOWER(COALESCE(topic,'')) LIKE '%doutorado%')
+             OR (LOWER(content) LIKE ? AND (LOWER(content) LIKE '%documento%' OR LOWER(content) LIKE '%documentos%'))
+            """);
+      } else {
+        sql.append("""
+             OR (LOWER(COALESCE(topic,'')) LIKE '%documento%' AND LOWER(COALESCE(topic,'')) LIKE '%mestrado%')
+             OR (LOWER(content) LIKE ? AND (LOWER(content) LIKE '%documento%' OR LOWER(content) LIKE '%documentos%'))
+            """);
+      }
+      args.add("%" + p + "%");
+      sql.append(") ");
     }
   }
 

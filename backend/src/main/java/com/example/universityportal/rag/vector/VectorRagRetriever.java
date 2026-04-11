@@ -49,15 +49,26 @@ public class VectorRagRetriever {
     QueryLanguage queryLanguage = QueryLanguageDetector.detect(query);
     String retrievalQuery = normalizeRetrievalQuery(query.trim(), queryLanguage);
     String preferredDocId = inferPreferredDocId(retrievalQuery);
-    List<String> queryVariants = expandQuery(retrievalQuery);
+    RagQueryIntent intent = RagQueryIntentDetector.detect(query);
+    if (intent == RagQueryIntent.GENERAL) {
+      intent = RagQueryIntentDetector.detect(retrievalQuery);
+    }
+    ChunkSearchConstraints constraints = ChunkSearchConstraints.forIntent(intent, docIdLike(preferredDocId));
+    log.debug("RAG intent={} sectionFilters={}", intent, constraints.hasSqlFilters());
+
+    List<String> queryVariants = expandQueryVariants(retrievalQuery, intent);
     queryVariants.add(query.trim());
     queryVariants = dedupe(queryVariants);
     List<String> requiredTokens = identifierTokens(retrievalQuery);
 
     try {
       int topK = Math.max(1, properties.getTopK());
+      if (intent == RagQueryIntent.DOCUMENTS_PHD || intent == RagQueryIntent.DOCUMENTS_MASTER) {
+        topK = Math.max(topK, 5);
+      }
       int poolMultiplier = Math.max(3, properties.getHybridCandidateMultiplier());
       int pool = Math.min(50, topK * poolMultiplier);
+      int sectionAwareMin = Math.max(1, properties.getSectionAwareMinChunks());
       List<VectorSearchResult> required = vectorStore.searchByRequiredTokens(requiredTokens, Math.min(20, pool));
       List<VectorSearchResult> raw = new ArrayList<>();
       List<VectorSearchResult> lexical = new ArrayList<>();
@@ -68,7 +79,12 @@ public class VectorRagRetriever {
       }
       for (int i = 0; i < queryVariants.size(); i++) {
         String variant = queryVariants.get(i);
-        raw.addAll(vectorStore.search(queryVectors.get(i), pool));
+        float[] qvec = queryVectors.get(i);
+        List<VectorSearchResult> constrained = vectorStore.search(qvec, pool, constraints);
+        raw.addAll(constrained);
+        if (constraints.hasSqlFilters() && constrained.size() < sectionAwareMin) {
+          raw.addAll(vectorStore.search(qvec, Math.min(pool, 30), ChunkSearchConstraints.none()));
+        }
         lexical.addAll(vectorStore.searchByLexicalTokens(KeywordOverlapReranker.tokenize(variant), Math.min(25, pool)));
       }
       List<VectorSearchResult> leading = List.of();
@@ -84,10 +100,11 @@ public class VectorRagRetriever {
 
       // Lightweight lexical rerank improves precision for identifiers like "Notice 07 – 2026.1".
       List<VectorSearchResult> ranked = KeywordOverlapReranker.rerank(retrievalQuery, merged, queryLanguage);
+      ranked = applyIntentSectionBoost(ranked, intent);
       ranked = boostPreferredDoc(ranked, preferredDocId);
       ranked = prioritizePreferredDoc(ranked, preferredDocId);
       ranked = applyThreshold(ranked);
-      if (ranked.isEmpty() || !contextLooksRelevant(ranked, retrievalQuery)) {
+      if (ranked.isEmpty() || !contextLooksRelevant(ranked, retrievalQuery, intent)) {
         int retries = Math.min(Math.max(1, properties.getMaxRetryVariants()), queryVariants.size());
         for (int i = 0; i < retries; i++) {
           String variant = queryVariants.get(i);
@@ -255,13 +272,46 @@ public class VectorRagRetriever {
     return query;
   }
 
-  private List<String> expandQuery(String query) {
+  private List<String> expandQueryVariants(String query, RagQueryIntent intent) {
     List<String> variants = new ArrayList<>();
     variants.add(query);
     variants.add(query + " edital educacao");
     variants.add(query + " mestrado doutorado requisitos");
     variants.add(query + " documentos inscricao doutorado");
+    if (intent == RagQueryIntent.DOCUMENTS_PHD) {
+      variants.add(query + " 3.5.2 para o doutorado documentos necessarios inscricao");
+      variants.add(query + " lista documentos doutorado comprovacao");
+    } else if (intent == RagQueryIntent.DOCUMENTS_MASTER) {
+      variants.add(query + " 3.5.1 documentos mestrado inscricao");
+    }
     return variants;
+  }
+
+  private static String docIdLike(String preferredDocId) {
+    if (preferredDocId == null || preferredDocId.isBlank()) return null;
+    return "%" + preferredDocId + "%";
+  }
+
+  private List<VectorSearchResult> applyIntentSectionBoost(List<VectorSearchResult> ranked, RagQueryIntent intent) {
+    if (ranked == null || ranked.isEmpty()) return ranked;
+    if (intent != RagQueryIntent.DOCUMENTS_PHD && intent != RagQueryIntent.DOCUMENTS_MASTER) return ranked;
+    String wantPrefix = intent == RagQueryIntent.DOCUMENTS_PHD ? "3.5.2" : "3.5.1";
+    List<VectorSearchResult> out = new ArrayList<>();
+    for (VectorSearchResult r : ranked) {
+      String sec = r.section() == null ? "" : r.section().trim();
+      double boost = 0;
+      if (sec.startsWith(wantPrefix)) boost += 0.40;
+      if (sec.startsWith("4.")) boost -= 0.55;
+      if (boost != 0) {
+        out.add(new VectorSearchResult(
+            r.id(), r.sourceFileId(), r.sourceFileName(), r.docId(), r.section(), r.topic(), r.content(), r.score() + boost
+        ));
+      } else {
+        out.add(r);
+      }
+    }
+    out.sort((a, b) -> Double.compare(b.score(), a.score()));
+    return out;
   }
 
   private List<VectorSearchResult> applyThreshold(List<VectorSearchResult> ranked) {
@@ -276,22 +326,49 @@ public class VectorRagRetriever {
     return kept;
   }
 
-  private boolean contextLooksRelevant(List<VectorSearchResult> ranked, String query) {
+  private boolean contextLooksRelevant(List<VectorSearchResult> ranked, String query, RagQueryIntent intent) {
     List<String> queryTokens = KeywordOverlapReranker.tokenize(query);
-    if (queryTokens.isEmpty()) return true;
-    Set<String> required = new HashSet<>(queryTokens.subList(0, Math.min(4, queryTokens.size())));
-    int hits = 0;
-    for (VectorSearchResult result : ranked) {
-      String content = result.content() == null ? "" : result.content().toLowerCase();
-      for (String token : required) {
-        if (content.contains(token)) {
-          hits++;
-          break;
+    if (!queryTokens.isEmpty()) {
+      Set<String> required = new HashSet<>(queryTokens.subList(0, Math.min(4, queryTokens.size())));
+      int hits = 0;
+      for (VectorSearchResult result : ranked) {
+        String content = result.content() == null ? "" : result.content().toLowerCase();
+        for (String token : required) {
+          if (content.contains(token)) {
+            hits++;
+            break;
+          }
         }
+        if (hits >= Math.min(2, required.size())) break;
       }
-      if (hits >= Math.min(2, required.size())) return true;
+      if (hits < Math.min(2, Math.max(1, required.size())) && !required.isEmpty()) return false;
     }
-    return false;
+    if (intent == RagQueryIntent.DOCUMENTS_PHD) {
+      return ranked.stream().limit(8).anyMatch(r -> looksLikePhdSubmissionDocuments(r));
+    }
+    if (intent == RagQueryIntent.DOCUMENTS_MASTER) {
+      return ranked.stream().limit(8).anyMatch(r -> looksLikeMasterSubmissionDocuments(r));
+    }
+    return true;
+  }
+
+  private static boolean looksLikePhdSubmissionDocuments(VectorSearchResult r) {
+    String sec = r.section() == null ? "" : r.section().trim();
+    if (sec.startsWith("4.")) return false;
+    String c = r.content() == null ? "" : r.content().toLowerCase();
+    return sec.startsWith("3.5.2")
+        || c.contains("3.5.2")
+        || (c.contains("documento") && c.contains("doutorado"))
+        || (c.contains("para o doutorado") && c.contains("document"));
+  }
+
+  private static boolean looksLikeMasterSubmissionDocuments(VectorSearchResult r) {
+    String sec = r.section() == null ? "" : r.section().trim();
+    if (sec.startsWith("4.")) return false;
+    String c = r.content() == null ? "" : r.content().toLowerCase();
+    return sec.startsWith("3.5.1")
+        || c.contains("3.5.1")
+        || (c.contains("documento") && c.contains("mestrado"));
   }
 
   private String inferPreferredDocId(String query) {

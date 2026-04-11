@@ -1,4 +1,5 @@
 com\example\universityportal\rag\vector\VectorStore.class
+com\example\universityportal\rag\vector\RagQueryIntentDetector.class
 com\example\universityportal\rag\GoogleDrivePdfRagService$ScoredChunk.class
 com\example\universityportal\rag\vector\KeywordOverlapReranker.class
 com\example\universityportal\rag\vector\QueryLanguage.class
@@ -8,6 +9,7 @@ com\example\universityportal\rag\vector\EmbeddingClient.class
 com\example\universityportal\rag\vector\OpenRouterEmbeddingClient.class
 com\example\universityportal\ai\OpenRouterChatClient.class
 com\example\universityportal\rag\RagChunk.class
+com\example\universityportal\rag\vector\ChunkSearchConstraints.class
 com\example\universityportal\rag\vector\VectorSearchResult.class
 com\example\universityportal\rag\vector\OpenRouterEmbeddingClient$EmbeddingHttpException.class
 com\example\universityportal\rag\GoogleDrivePdfRagService.class
@@ -15,11 +17,13 @@ com\example\universityportal\dto\ChatRequest.class
 com\example\universityportal\rag\vector\VectorRagIndexService.class
 com\example\universityportal\dto\LoginResponse.class
 com\example\universityportal\rag\DrivePdfDocument.class
+com\example\universityportal\rag\vector\ChunkSearchConstraints$1.class
 com\example\universityportal\security\TokenService.class
 com\example\universityportal\rag\vector\PgVectorStore.class
 com\example\universityportal\dto\LoginRequest.class
 com\example\universityportal\rag\RagStartupDiagnostics.class
 com\example\universityportal\dto\CourseDto.class
+com\example\universityportal\rag\vector\RagQueryIntent.class
 com\example\universityportal\dto\MeResponse.class
 com\example\universityportal\ai\ChatService$IntentType.class
 com\example\universityportal\rag\vector\RagRetrievalProperties.class

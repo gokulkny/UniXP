@@ -19,6 +19,8 @@ public class RagRetrievalProperties {
   private int hybridCandidateMultiplier = 2;
   private double similarityMinScore = 0.35;
   private int maxRetryVariants = 4;
+  /** When section-filtered vector search returns fewer rows than this, also merge unconstrained neighbors. */
+  private int sectionAwareMinChunks = 3;
 
   public RetrievalMode getRetrievalMode() {
     return retrievalMode;
@@ -82,5 +84,13 @@ public class RagRetrievalProperties {
 
   public void setMaxRetryVariants(int maxRetryVariants) {
     this.maxRetryVariants = maxRetryVariants;
+  }
+
+  public int getSectionAwareMinChunks() {
+    return sectionAwareMinChunks;
+  }
+
+  public void setSectionAwareMinChunks(int sectionAwareMinChunks) {
+    this.sectionAwareMinChunks = sectionAwareMinChunks;
   }
 }

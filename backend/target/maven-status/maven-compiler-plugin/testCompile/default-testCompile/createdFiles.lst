@@ -3,6 +3,7 @@ com\example\universityportal\rag\vector\VectorRagRetrieverTest$2.class
 com\example\universityportal\rag\vector\VectorRagRetrieverTest.class
 com\example\universityportal\rag\vector\VectorRagRetrieverTest$1.class
 com\example\universityportal\rag\vector\PgVectorStoreIT.class
+com\example\universityportal\rag\vector\RagQueryIntentDetectorTest.class
 com\example\universityportal\rag\vector\VectorRagRetrieverTest$FakeEmbeddingClient.class
 com\example\universityportal\rag\vector\KeywordOverlapRerankerTest.class
 com\example\universityportal\rag\vector\VectorRagRetrieverTest$FakeVectorStore.class

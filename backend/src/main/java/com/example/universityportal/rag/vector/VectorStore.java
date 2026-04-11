@@ -11,6 +11,13 @@ public interface VectorStore {
   List<VectorSearchResult> search(float[] queryEmbedding, int topK);
 
   /**
+   * Vector search with optional metadata filters (section/doc_id). Default: ignore constraints.
+   */
+  default List<VectorSearchResult> search(float[] queryEmbedding, int topK, ChunkSearchConstraints constraints) {
+    return search(queryEmbedding, topK);
+  }
+
+  /**
    * Optional lexical fallback for identifier-heavy queries (e.g., "07/2026.1").
    * Implementations may return empty when unsupported.
    */

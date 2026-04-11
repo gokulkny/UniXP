@@ -22,6 +22,7 @@ C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal
 C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal\rag\RagEnvKeys.java
 C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal\rag\RagExcerpt.java
 C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal\rag\RagStartupDiagnostics.java
+C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal\rag\vector\ChunkSearchConstraints.java
 C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal\rag\vector\EmbeddingClient.java
 C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal\rag\vector\KeywordOverlapReranker.java
 C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal\rag\vector\OpenRouterEmbeddingClient.java
@@ -29,6 +30,8 @@ C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal
 C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal\rag\vector\PgVectorStore.java
 C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal\rag\vector\QueryLanguage.java
 C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal\rag\vector\QueryLanguageDetector.java
+C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal\rag\vector\RagQueryIntent.java
+C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal\rag\vector\RagQueryIntentDetector.java
 C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal\rag\vector\RagRetrievalProperties.java
 C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal\rag\vector\VectorChunkRecord.java
 C:\Users\gokul\Dummy projects\backend\src\main\java\com\example\universityportal\rag\vector\VectorRagIndexService.java
